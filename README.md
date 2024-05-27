@@ -35,7 +35,7 @@ The script listens for incoming requests from the B2 private cloud instances and
 To use the host backup server call it from the B2 private cloud instance using the following command:
 
 ```bash
-curl -X POST https://<host-backup-server-ip>:8000/<your-desired-route>
+curl -X POST http://<host-backup-server-ip>:8000/<your-desired-route>
 ```
 
 ## Routes explanation
