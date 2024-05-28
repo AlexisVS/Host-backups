@@ -9,7 +9,7 @@ $message = '';
 try {
     $allowed_routes = [
         '/token',
-        '/token-release',
+        '/tokenRelease',
     ];
 
     // By convention, we accept only POST requests
