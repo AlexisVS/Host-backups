@@ -9,7 +9,7 @@ $message = '';
 try {
     $allowed_routes = [
         '/token',
-        '/tokenRelease',
+        '/token-release',
     ];
 
     // By convention, we accept only POST requests
@@ -37,8 +37,13 @@ try {
         throw new Exception("invalid_json", 400);
     }
 
-    $handler = str_replace('/', '_', (trim($_SERVER['REQUEST_URI'], '/')));
+    $handler = trim($_SERVER['REQUEST_URI'], '/');
+    $handler = str_replace('/', '_', $handler);
+    $handler = preg_replace_callback('/-./', function ($matches) {
+        return strtoupper($matches[0][1]);
+    }, $handler);
 
+    // Define the controller file path
     $controller_file = __DIR__ . '/controllers/' . $handler . '.php';
 
     // Check if the controller or script file exists
