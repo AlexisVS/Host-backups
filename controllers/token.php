@@ -23,12 +23,6 @@ function token(array $data): array
         throw new Exception('Bad Request', 400);
     }
 
-    // read the backup_tokens.txt file and if lines are more than 10, return status code 429
-    $backup_tokens = file('/home/status/backup_tokens.txt', FILE_IGNORE_NEW_LINES);
-    if (count($backup_tokens) >= 10) {
-        throw new Exception('Too Many Backup attempts', 429);
-    }
-
     // Get the backup host JWT
     $backup_host_jwt = file_get_contents('/home/status/jwt.txt');
     if ($backup_host_jwt === false) {
@@ -36,20 +30,60 @@ function token(array $data): array
     }
 
     // Create a backup token with the backup host JWT and the B2Host JWT + instance name
-    $backup_token = openssl_encrypt($data['JWT'] . $data['instance'], 'AES-256-CBC', $backup_host_jwt);
-    if ($backup_token === false) {
+    $b2_instance_backup_token = openssl_encrypt($data['JWT'] . $data['instance'], 'AES-256-CBC', $backup_host_jwt);
+    if ($b2_instance_backup_token === false) {
         throw new Exception('Server Error while creating backup token', 500);
     }
 
-    // Append the backup token to the backup_tokens.txt file
-    $backup_token_wrote = file_put_contents('/home/status/backup_tokens.txt', $backup_token . PHP_EOL, FILE_APPEND);
-    if ($backup_token_wrote === false) {
-        throw new Exception('Server Error while writing backup token', 500);
+    // read the backup_tokens.json file and if lines are more than 10, return status code 429
+    $backup_tokens_filename = '/home/status/backup_tokens.json';
+    $max_retries = 10;
+    $retry_count = 0;
+    $locked = false;
+    $fp = fopen($backup_tokens_filename, 'r+');
+
+    while ($retry_count < $max_retries) {
+        if (flock($fp, LOCK_EX)) {
+            $locked = true;
+            break;
+        } else {
+            $retry_count++;
+            fclose($fp);
+            sleep(1); // Wait for 1 second before retrying
+        }
     }
+
+    if (!$locked) {
+        throw new Exception("Couldn't get the lock after $max_retries attempts!", 500);
+    }
+
+    // Read the file content
+    $content = fread($fp, filesize($backup_tokens_filename));
+
+    // Convert the content to JSON
+    /** @var array{tokens: string[]} $backup_tokens_file_content */
+    $backup_tokens_file_content = json_decode($content, true);
+
+    // Adapt the value
+    $backup_tokens_file_content['tokens'][] = $b2_instance_backup_token;
+
+    // Convert back to JSON
+    $newContent = json_encode($backup_tokens_file_content);
+
+    // Truncate the file and write the new content
+    ftruncate($fp, 0);
+    rewind($fp);
+    fwrite($fp, $newContent);
+
+    // Release the lock
+    flock($fp, LOCK_UN);
+
+    // Close the file
+    fclose($fp);
 
     // Escape input to prevent shell injection
     $username = escapeshellarg($data['instance']);
-    $password = escapeshellarg($backup_token);
+    $password = escapeshellarg($b2_instance_backup_token);
 
     // Create a new user and set the shell to nologin
     exec("sudo useradd -s /usr/sbin/nologin $username");
@@ -58,7 +92,7 @@ function token(array $data): array
     exec("echo '$username:$password' | sudo chpasswd");
 
     $message = [
-        'token' => $backup_token,
+        'token' => $b2_instance_backup_token,
         'credentials' => [
             'username' => $username,
             'password' => $password
